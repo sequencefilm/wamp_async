@@ -532,32 +532,33 @@ impl<'a> Client<'a> {
         Ok(rpc_id)
     }
 
-    pub async fn register_boxed<T, F>(&self, uri: T, func_ptr: Box<F>) -> Result<WampId, WampError>
+    pub async fn register_boxed<T>(
+        &self,
+        uri: T,
+        func_ptr: Box<
+            dyn Fn(
+                    Option<WampArgs>,
+                    Option<WampKwArgs>,
+                ) -> std::pin::Pin<
+                    Box<
+                        dyn Future<
+                                Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>,
+                            > + Send,
+                    >,
+                > + Send
+                + Sync
+                + 'a,
+        >,
+    ) -> Result<WampId, WampError>
     where
         T: AsRef<str>,
-        F: Fn(
-                Option<WampArgs>,
-                Option<WampKwArgs>,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn Future<Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>>
-                        + Send,
-                >,
-            > + Send
-            + Sync
-            + 'static,
     {
         // Send the request
         let (res, result) = oneshot::channel();
-
-        // Here we are moving the boxed function pointer into the closure
-        // Since `func_ptr` is already a Box, it satisfies the 'static lifetime requirement
-        let func = move |a, k| func_ptr(a, k);
-
         if let Err(e) = self.ctl_channel.send(Request::Register {
             uri: uri.as_ref().to_string(),
             res,
-            func_ptr: Box::new(func),
+            func_ptr: Box::new(move |a, k| func_ptr(a, k)),
         }) {
             return Err(From::from(format!(
                 "Core never received our request : {}",
