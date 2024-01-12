@@ -12,6 +12,21 @@ use crate::core::*;
 use crate::error::*;
 use crate::serializer::SerializerType;
 
+pub type BoxedAsyncRpcHandler = Box<
+    dyn Fn(
+            Option<WampArgs>,
+            Option<WampKwArgs>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn Future<Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>>
+                    + Send
+                    + 'static,
+            >,
+        > + Send
+        + Sync
+        + 'static,
+>;
+
 /// Options one can set when connecting to a WAMP server
 pub struct ClientConfig {
     /// Replaces the default user agent string
@@ -537,31 +552,24 @@ impl<'a> Client<'a> {
     pub async fn register_boxed<T>(
         &self,
         uri: T,
-        func_ptr: Box<
-            dyn Fn(
-                    Option<WampArgs>,
-                    Option<WampKwArgs>,
-                ) -> std::pin::Pin<
-                    Box<
-                        dyn Future<
-                                Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>,
-                            > + Send
-                            + 'static,
-                    >,
-                > + Send
-                + Sync
-                + 'static,
-        >,
+        handler: BoxedAsyncRpcHandler,
     ) -> Result<WampId, WampError>
     where
         T: AsRef<str>,
     {
         // Send the request
         let (res, result) = oneshot::channel();
-        if let Err(e) = self.ctl_channel.send(Request::Register {
+        let channel = self.ctl_channel.clone();
+
+        let func_ptr = move |args, kwargs| {
+            let fut = handler(args, kwargs);
+            async move { fut.await }
+        };
+
+        if let Err(e) = channel.send(Request::Register {
             uri: uri.as_ref().to_string(),
             res,
-            func_ptr: Box::new(move |args, kwargs| func_ptr(args, kwargs)),
+            func_ptr: Box::new(move |args, kwargs| Box::pin(func_ptr(args, kwargs))),
         }) {
             return Err(From::from(format!(
                 "Core never received our request : {}",
