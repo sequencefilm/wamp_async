@@ -561,15 +561,12 @@ impl<'a> Client<'a> {
         let (res, result) = oneshot::channel();
         let channel = self.ctl_channel.clone();
 
-        let func_ptr = move |args, kwargs| {
-            let fut = handler(args, kwargs);
-            async move { fut.await }
-        };
+        let func_ptr = move |args, kwargs| handler(args, kwargs);
 
         if let Err(e) = channel.send(Request::Register {
             uri: uri.as_ref().to_string(),
             res,
-            func_ptr: Box::new(move |args, kwargs| Box::pin(func_ptr(args, kwargs))),
+            func_ptr: Box::new(func_ptr),
         }) {
             return Err(From::from(format!(
                 "Core never received our request : {}",
