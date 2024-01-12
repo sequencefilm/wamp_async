@@ -502,8 +502,10 @@ impl<'a> Client<'a> {
     pub async fn register<T, F, Fut>(&self, uri: T, func_ptr: F) -> Result<WampId, WampError>
     where
         T: AsRef<str>,
-        F: Fn(Option<WampArgs>, Option<WampKwArgs>) -> Fut + Send + Sync + 'a,
-        Fut: Future<Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>> + Send + 'a,
+        F: 'static + Fn(Option<WampArgs>, Option<WampKwArgs>) -> Fut + Send + Sync,
+        Fut: 'static
+            + Future<Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>>
+            + Send,
     {
         // Send the request
         let (res, result) = oneshot::channel();
@@ -543,11 +545,12 @@ impl<'a> Client<'a> {
                     Box<
                         dyn Future<
                                 Output = Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>,
-                            > + Send,
+                            > + Send
+                            + 'static,
                     >,
                 > + Send
                 + Sync
-                + 'a,
+                + 'static,
         >,
     ) -> Result<WampId, WampError>
     where
@@ -558,7 +561,7 @@ impl<'a> Client<'a> {
         if let Err(e) = self.ctl_channel.send(Request::Register {
             uri: uri.as_ref().to_string(),
             res,
-            func_ptr: Box::new(move |a, k| func_ptr(a, k)),
+            func_ptr: Box::new(move |args, kwargs| func_ptr(args, kwargs)),
         }) {
             return Err(From::from(format!(
                 "Core never received our request : {}",
@@ -579,7 +582,6 @@ impl<'a> Client<'a> {
 
         Ok(rpc_id)
     }
-
     /// Unregisters an RPC endpoint
     pub async fn unregister(&self, rpc_id: WampId) -> Result<(), WampError> {
         // Send the request

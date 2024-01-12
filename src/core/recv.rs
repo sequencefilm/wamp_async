@@ -167,6 +167,7 @@ pub async fn invocation(
         }
     };
 
+    // Check if the rpc_func is double-boxed and unbox it if necessary
     let ctl_channel = core.ctl_sender.clone();
     let func_future = rpc_func(arguments, arguments_kw);
 
